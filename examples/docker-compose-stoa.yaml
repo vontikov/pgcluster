@@ -26,7 +26,7 @@ services:
       - PG_SYNC_NAMES=FIRST 1 (replica0)
 
       - PGCP_LOG_LEVEL=debug
-      - PGCP_STOA_BOOTSTRAP=stoa0,stoa1,stoa2
+      - PGCP_STORAGE_BOOTSTRAP=stoa0,stoa1,stoa2
     ports:
       - 5432:5432
       - 3501:3501
@@ -41,7 +41,7 @@ services:
       - PG_REPLICATION_HOST=pg_master
 
       - PGCP_LOG_LEVEL=debug
-      - PGCP_STOA_BOOTSTRAP=stoa0,stoa1,stoa2
+      - PGCP_STORAGE_BOOTSTRAP=stoa0,stoa1,stoa2
     ports:
       - 5433:5432
       - 3502:3501
@@ -56,7 +56,7 @@ services:
       - PG_REPLICATION_HOST=pg_master
 
       - PGCP_LOG_LEVEL=debug
-      - PGCP_STOA_BOOTSTRAP=stoa0,stoa1,stoa2
+      - PGCP_STORAGE_BOOTSTRAP=stoa0,stoa1,stoa2
     ports:
       - 5434:5432
       - 3503:3501
