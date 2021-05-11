@@ -1,3 +1,24 @@
+FROM golang:1.16.4 as builder
+
+ARG APP
+ARG NS
+ARG VERSION
+ARG PKG=github.com/vontikov/pgcluster/internal
+
+RUN mkdir /build
+WORKDIR /build
+COPY . .
+
+RUN go build \
+  -ldflags="\
+    -s -w \
+    -X ${PKG}/app.Namespace=${NS} \
+    -X ${PKG}/app.App=${APP} \
+    -X ${PKG}/app.Version=${VERSION} \
+  " \
+  -o pgcluster \
+  cmd/*.go
+
 FROM debian:stable-20210408-slim
 
 ARG VERSION
@@ -52,14 +73,14 @@ RUN \
   && chown -R ${PG_USER}:${PG_USER} "${PG_HOME}" \
   && chown -R ${PG_USER}:${PG_USER} "${PG_BACKUP}"
 
-COPY assets/docker/scripts/promote /scripts/promote
-COPY assets/docker/scripts/sync    /scripts/sync
+COPY --from=builder /build/assets/docker/scripts/promote /scripts/promote
+COPY --from=builder /build/assets/docker/scripts/sync    /scripts/sync
 RUN chmod 755 /scripts/promote /scripts/sync
 
-COPY assets/docker/scripts/functions ${PG_HOME}/functions
-COPY assets/docker/scripts/entrypoint /sbin/docker-entrypoint
+COPY --from=builder /build/assets/docker/scripts/functions ${PG_HOME}/functions
+COPY --from=builder /build/assets/docker/scripts/entrypoint /sbin/docker-entrypoint
 RUN chmod 755 /sbin/docker-entrypoint
-COPY .bin/pgcluster /sbin
+COPY --from=builder /build/pgcluster /sbin
 
 USER ${PG_USER}
 ENTRYPOINT ["docker-entrypoint"]

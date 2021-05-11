@@ -32,12 +32,17 @@ func main() {
 
 	logLevel := env.GetOrDefault(env.LogLevel, defaultLogLevel)
 	logging.SetLevel(logLevel)
-	logger := logging.NewLogger(app.App)
+	logger := logging.NewLogger("main")
 
 	hostname, err := os.Hostname()
 	util.PanicOnError(err)
 
-	logger.Info("starting", "name", app.App, "version", app.Version, "hostname", hostname)
+	logger.Info("starting",
+		"name", app.App,
+		"namespace", app.Namespace,
+		"version", app.Version,
+		"hostname", hostname,
+	)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	cluster := pg.New(ctx,

@@ -110,8 +110,6 @@ build: $(BIN_MARKER)
 
 $(BIN_MARKER): prepare $(GO_FILES)
 	@echo "Building the binaries..."
-	@chmod +x $(TMPL_DIR)/version.tmpl
-	@$(TMPL_DIR)/version.tmpl $(NS) $(APP) $(VERSION) >$(BASE_DIR)/internal/app/version.go
 	@mkdir -p $(BIN_DIR)
 	@GOBIN=$(BIN_DIR) \
       CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
@@ -126,6 +124,17 @@ $(BIN_MARKER): prepare $(GO_FILES)
 image: build
 	@docker build \
       --build-arg VERSION=$(VERSION) \
+      --build-arg PG_VERSION=$(PG_VERSION) \
+      -t $(DOCKER_NS)/$(APP):$(VERSION) .
+
+## image-staged: Builds Docker image (staged)
+image-staged:
+	@docker build \
+      --build-arg APP=$(APP) \
+      --build-arg NS=$(NS) \
+      --build-arg VERSION=$(VERSION) \
+      --build-arg PG_VERSION=$(PG_VERSION) \
+      -f Dockerfile-staged \
       -t $(DOCKER_NS)/$(APP):$(VERSION) .
 
 ## mocks: Generates mocks
