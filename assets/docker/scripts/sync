@@ -1,0 +1,22 @@
+#!/bin/bash
+
+##############################################
+#       Synchronizes slave with master       #
+##############################################
+
+set -e
+source "${PG_HOME}/functions"
+
+sync() {
+  local host=${1}
+  local port=${2:-5432}
+  local db="postgres"
+
+  wait_host "${host}" "${port}"
+  pg_rewind --source-server="host=${host} user=${PG_REPLICATION_USER} password=${PG_REPLICATION_PASSWORD} dbname=${db}" --target-pgdata=${PGDATA}
+  set_postgresql_param "primary_conninfo" "host=${SYNC_HOST} port=${PG_REPLICATION_PORT} user=${PG_REPLICATION_USER} password=${PG_REPLICATION_PASSWORD}"
+  set_postgresql_param "promote_trigger_file" "${PG_REPLICATION_PROMOTE_TRIGGER_FILE}"
+  touch ${PG_REPLICATION_STANDBY_FILE}
+}
+
+sync $@

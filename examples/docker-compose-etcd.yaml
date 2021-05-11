@@ -1,0 +1,60 @@
+version: "3.9"
+
+services:
+  etcd0:
+    image: bitnami/etcd:latest
+    container_name: etcd0
+    hostname: etcd0
+    environment:
+      - ALLOW_NONE_AUTHENTICATION=yes
+    ports:
+      - 2379:2379
+      - 2380:2380
+
+  master:
+    image: github.com/vontikov/pgcluster:0.0.1
+    container_name: pg_master
+    hostname: pg_master
+    environment:
+      - PG_CLUSTER_NAME=master
+      - PG_PASSWORD=12345
+      - PG_SYNC_NAMES=FIRST 1 (replica0)
+
+      - PGCP_LOG_LEVEL=debug
+      - PGCP_STORAGE_TYPE=etcd
+      - PGCP_STORAGE_BOOTSTRAP=etcd0:2379
+    ports:
+      - 5432:5432
+      - 3501:3501
+
+  replica0:
+    image: github.com/vontikov/pgcluster:0.0.1
+    container_name: pg_replica0
+    hostname: pg_replica0
+    environment:
+      - PG_CLUSTER_NAME=replica0
+      - PG_REPLICATION_MODE=replica
+      - PG_REPLICATION_HOST=pg_master
+
+      - PGCP_LOG_LEVEL=debug
+      - PGCP_STORAGE_TYPE=etcd
+      - PGCP_STORAGE_BOOTSTRAP=etcd0:2379
+    ports:
+      - 5433:5432
+      - 3502:3501
+
+  replica1:
+    image: github.com/vontikov/pgcluster:0.0.1
+    container_name: pg_replica1
+    hostname: pg_replica1
+    environment:
+      - PG_CLUSTER_NAME=replica1
+      - PG_REPLICATION_MODE=replica
+      - PG_REPLICATION_HOST=pg_master
+
+      - PGCP_LOG_LEVEL=debug
+      - PGCP_STORAGE_TYPE=etcd
+      - PGCP_STORAGE_BOOTSTRAP=etcd0:2379
+    ports:
+      - 5434:5432
+      - 3503:3501

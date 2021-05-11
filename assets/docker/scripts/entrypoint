@@ -1,0 +1,39 @@
+#!/bin/bash
+
+##############################################
+#            Docker entry point              #
+##############################################
+
+source "${PG_HOME}/functions"
+
+[[ ${PG_REPLICATION_MODE} == slave ]] && \
+    wait_host "${PG_REPLICATION_HOST}" "${PG_REPLICATION_PORT}"
+
+if [ ! -d "$PGDATA" ]; then
+  prepare_env
+  prepare_passwords
+
+  case ${PG_REPLICATION_MODE} in
+    master)
+      init_db
+      create_replication_user
+      prepare_master
+    ;;
+    replica)
+      backup_from_master
+      prepare_slave
+    ;;
+    *)
+      echo "Unknown replication mode"
+      exit 1
+    ;;
+  esac
+fi
+
+${PG_BINDIR}/pg_ctl start
+clear_passwords
+
+exec \
+  env PG_BINDIR=${PG_BINDIR} \
+  env PG_REPLICATION_USER=${PG_REPLICATION_USER} \
+  ${@:-sleep infinity}

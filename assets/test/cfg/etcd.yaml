@@ -1,0 +1,74 @@
+logging:
+  level: debug
+
+SUT:
+  - hostname: etcd0
+    image: bitnami/etcd:latest
+    container_name: etcd0
+    environment:
+      - ALLOW_NONE_AUTHENTICATION=yes
+
+  - hostname: pg_master
+    image: github.com/vontikov/pgcluster:0.0.1
+    container_name: pg_master
+    environment:
+      - PG_CLUSTER_NAME=master
+      - PG_PASSWORD=12345
+      - PG_SYNC_NAMES=FIRST 1 (replica0)
+
+      - PGCP_LOG_LEVEL=trace
+      - PGCP_STORAGE_TYPE=etcd
+      - PGCP_STORAGE_BOOTSTRAP=etcd0:2379
+    ports:
+      - name: mgmt
+        published: 3501
+        target: 3501
+      - name: pg
+        published: 5432
+        target: 5432
+    volumes:
+      - ./../assets/test/data:/data
+
+  - hostname: pg_replica0
+    image: github.com/vontikov/pgcluster:0.0.1
+    container_name: pg_replica0
+    environment:
+      - PG_CLUSTER_NAME=replica0
+      - PG_PASSWORD=12345
+      - PG_REPLICATION_MODE=replica
+      - PG_REPLICATION_HOST=pg_master
+
+      - PGCP_LOG_LEVEL=trace
+      - PGCP_STORAGE_TYPE=etcd
+      - PGCP_STORAGE_BOOTSTRAP=etcd0:2379
+    ports:
+      - name: mgmt
+        published: 3502
+        target: 3501
+      - name: pg
+        published: 5433
+        target: 5432
+    volumes:
+      - ./../assets/test/data:/data
+
+  - hostname: pg_replica1
+    image: github.com/vontikov/pgcluster:0.0.1
+    container_name: pg_replica1
+    environment:
+      - PG_CLUSTER_NAME=replica1
+      - PG_PASSWORD=12345
+      - PG_REPLICATION_MODE=replica
+      - PG_REPLICATION_HOST=pg_master
+
+      - PGCP_LOG_LEVEL=trace
+      - PGCP_STORAGE_TYPE=etcd
+      - PGCP_STORAGE_BOOTSTRAP=etcd0:2379
+    ports:
+      - name: mgmt
+        published: 3503
+        target: 3501
+      - name: pg
+        published: 5434
+        target: 5432
+    volumes:
+      - ./../assets/test/data:/data

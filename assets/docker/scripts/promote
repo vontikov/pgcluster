@@ -1,0 +1,9 @@
+#!/bin/bash
+
+##############################################
+#          Promotes slave to master          #
+##############################################
+
+set -e
+source "${PG_HOME}/functions"
+touch ${PG_REPLICATION_PROMOTE_TRIGGER_FILE}

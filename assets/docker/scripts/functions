@@ -1,0 +1,198 @@
+#!/bin/bash
+
+PG_BINDIR=/usr/lib/postgresql/${PG_VERSION}/bin
+PG_CONF=${PGDATA}/postgresql.conf
+PG_HBA_CONF=${PGDATA}/pg_hba.conf
+
+PG_USER=${PG_USER}
+PG_REPLICATION_HOST=${PG_REPLICATION_HOST}
+PG_SYNC_NAMES=${PG_SYNC_NAMES}
+
+PG_PASSWORD=${PG_PASSWORD:-$(pwgen -c -n -1 16)}
+
+# XXX
+PG_AUTH=${PG_AUTH:-trust} # PG_AUTH=${PG_AUTH:-md5}?
+
+PG_REPLICATION_USER=${PG_REPLICATION_USER:-replicator}
+PG_REPLICATION_PASSWORD=${PG_REPLICATION_PASSWORD:-replicator}
+PG_PASSWORD_FILE=${PG_PASSWORD_FILE:-${PG_HOME}/pwfile}
+
+PG_CLUSTER_NAME=${PG_CLUSTER_NAME:-pg_cluster}
+PG_MAX_CONNECTIONS=${PG_MAX_CONNECTIONS:-32}
+PG_MAX_WAL_SENDERS=${PG_MAX_WAL_SENDERS:-8}
+PG_WAL_KEEP_SIZE=${PG_WAL_KEEP_SIZE:-256}
+
+PG_REPLICATION_MODE=${PG_REPLICATION_MODE:-master}
+PG_REPLICATION_PORT=${PG_REPLICATION_PORT:-5432}
+PG_REPLICATION_PROMOTE_TRIGGER_FILE=${PGDATA}/promote.signal
+PG_REPLICATION_STANDBY_FILE=${PGDATA}/standby.signal
+
+PG_DYNAMIC_SHARED_MEMORY_TYPE=${PG_DYNAMIC_SHARED_MEMORY_TYPE:-posix}
+PG_MAX_WAL_SIZE=${PG_MAX_WAL_SIZE:-1GB}
+PG_MIN_WAL_SIZE=${PG_MIN_WAL_SIZE:-128MB}
+PG_SHARED_BUFFERS=${PG_SHARED_BUFFERS:-128MB}
+PG_DB_ENCODING=${PG_DB_ENCODING:-UTF8}
+
+set -e
+[[ ${DEBUG} == true ]] && set -x
+
+prepare_env() {
+  echo "PATH=${PG_BINDIR}:$PATH" >> ~/.bashrc
+  chmod -R o+w ${PG_BACKUP}
+}
+
+prepare_passwords() {
+  if [[ ${DEBUG} == true ]]; then
+    echo "*******************************************"
+    echo "* PostgreSQL password: ${PG_PASSWORD}"
+    echo "*******************************************"
+  fi
+  echo "${PG_PASSWORD}" > ${PG_PASSWORD_FILE}
+  chmod 600 ${PG_PASSWORD_FILE}
+
+  if [[ ${DEBUG} == true ]]; then
+    echo "*******************************************"
+    echo "* Replication password: ${PG_REPLICATION_PASSWORD}"
+    echo "*******************************************"
+  fi
+  echo "*:*:*:${PG_REPLICATION_USER}:${PG_REPLICATION_PASSWORD}" > ~/.pgpass
+  chmod 0600 ~/.pgpass
+}
+
+clear_passwords() {
+  if [[ ${DEBUG} != true ]]; then
+    unset PG_PASSWORD
+    unset PG_REPLICATION_PASSWORD
+  fi
+}
+
+init_db() {
+  ${PG_BINDIR}/initdb \
+      --username=${PG_USER} \
+      --pwfile=${PG_PASSWORD_FILE} \
+      --encoding=${PG_DB_ENCODING} \
+      --auth=${PG_AUTH}
+}
+
+set_pg_param() {
+  local key=${1}
+
+  local value=${2}
+  local verbosity=${3:-verbose}
+
+  if [[ -n ${value} ]]; then
+    local current=$(sed -n -e "s/^\(${key} = '\)\([^ ']*\)\(.*\)$/\2/p" ${PG_CONF})
+    if [[ "${current}" != "${value}" ]]; then
+      if [[ ${verbosity} == verbose ]]; then
+        echo "‣ Setting postgresql.conf parameter: ${key} = '${value}'"
+      fi
+      value="$(echo "${value}" | sed 's|[&]|\\&|g')"
+      sed -i "s|^[#]*[ ]*${key} = .*|${key} = '${value}'|" ${PG_CONF}
+    fi
+  fi
+}
+
+set_hba_param() {
+  local value=${1}
+  if ! grep -q "$(sed "s| | \\\+|g" <<< ${value})" ${PG_HBA_CONF}; then
+    echo "${value}" >> ${PG_HBA_CONF}
+  fi
+}
+
+create_replication_user() {
+  local user=${PG_REPLICATION_USER}
+
+  ${PG_BINDIR}/pg_ctl start >/dev/null
+
+  if [[ -z $(PGPASSWORD=${PG_PASSWORD} psql -Atc "SELECT 1 FROM pg_catalog.pg_user WHERE usename = '${user}'";) ]]; then
+    PGPASSWORD=${PG_PASSWORD} psql -c "\
+        CREATE ROLE \"${user}\" WITH REPLICATION LOGIN ENCRYPTED PASSWORD '${user}';\
+        GRANT CONNECT ON DATABASE postgres TO \"${user}\";\
+        GRANT EXECUTE ON FUNCTION pg_read_binary_file(text) TO \"${user}\";\
+        GRANT EXECUTE ON FUNCTION pg_read_binary_file(text,bigint,bigint) TO \"${user}\";\
+        GRANT EXECUTE ON FUNCTION pg_read_binary_file(text,bigint,bigint,boolean) TO \"${user}\";\
+        GRANT EXECUTE ON FUNCTION pg_ls_dir(text) TO \"${user}\";\
+        GRANT EXECUTE ON FUNCTION pg_ls_dir(text,boolean,boolean) TO \"${user}\";\
+        GRANT EXECUTE ON FUNCTION pg_stat_file(text) TO \"${user}\";\
+        GRANT EXECUTE ON FUNCTION pg_stat_file(text,boolean) TO \"${user}\";\
+      " >/dev/null
+  fi
+
+  ${PG_BINDIR}/pg_ctl stop >/dev/null
+}
+
+wait_host() {
+  local host=${1:localhost}
+  local port=${2:-5432}
+  local timeout=${3:-60}
+
+  echo -n "Waiting ${timeout}s for ${host}:${port} to accept connections"
+  while ! ${PG_BINDIR}/pg_isready -h ${host} -p ${port} -t 1 >/dev/null 2>&1
+  do
+    timeout=$(expr $timeout - 1)
+    if [[ $timeout -eq 0 ]]; then
+      echo "Exiting on timeout..."
+      exit 1
+    fi
+    echo -n "."
+    sleep 1
+  done
+}
+
+backup_from_master() {
+  timeout=60
+  echo -n "Waiting ${timeout}s for ${REPLICATION_HOST} to sync"
+  while ! pg_basebackup \
+      -h ${PG_REPLICATION_HOST} \
+      -p ${PG_REPLICATION_PORT} \
+      -U ${PG_REPLICATION_USER} \
+      -D ${PGDATA} \
+      -P \
+      -R \
+      -v
+  do
+    timeout=$(expr $timeout - 1)
+    if [[ $timeout -eq 0 ]]; then
+      echo "Exiting on timeout..."
+      exit 1
+    fi
+    echo -n "."
+    sleep 1
+  done
+}
+
+prepare_master() {
+  set_pg_param "cluster_name" "${PG_CLUSTER_NAME}"
+
+  set_pg_param "listen_addresses" "*"
+  set_pg_param "max_connections" "${PG_MAX_CONNECTIONS}"
+
+  set_pg_param "dynamic_shared_memory_type" "${PG_DYNAMIC_SHARED_MEMORY_TYPE}"
+  set_pg_param "max_wal_size" "${PG_MAX_WAL_SIZE}"
+  set_pg_param "min_wal_size" "${PG_MIN_WAL_SIZE}"
+  set_pg_param "shared_buffers" "${PG_SHARED_BUFFERS}"
+
+  set_pg_param "promote_trigger_file" "${PG_REPLICATION_PROMOTE_TRIGGER_FILE}"
+  set_pg_param "synchronous_standby_names" "${PG_SYNC_NAMES}"
+  set_pg_param "max_wal_senders" "${PG_MAX_WAL_SENDERS}"
+  set_pg_param "wal_log_hints" "on"
+  set_pg_param "wal_level" "replica"
+
+  # TODO check this
+  set_pg_param "wal_keep_size" "${PG_WAL_KEEP_SIZE}"
+  set_pg_param "wal_keep_segments" "10"
+  set_pg_param "wal_receiver_status_interval"  "5s"
+  set_pg_param "hot_standby_feedback" "on"
+
+  # this goes to standby on backup
+  set_pg_param "hot_standby" "on"
+
+  set_hba_param "host all         all 0.0.0.0/0 md5"
+  set_hba_param "host all         all ::/0      md5"
+  set_hba_param "host replication all 0.0.0.0/0 md5"
+
+}
+
+prepare_slave() {
+  set_pg_param "cluster_name" "${PG_CLUSTER_NAME}"
+}
