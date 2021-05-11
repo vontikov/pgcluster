@@ -29,7 +29,7 @@ make image-staged
 ```
 
 ```
-# Local build (requires [Go](https://golang.org/) to be installed)
+# Local build (requires local Go installation)
 make image
 ```
 
